@@ -1,0 +1,4 @@
+local AntiCheat = require(game.ServerScriptService:WaitForChild("AntiCheat"))
+local RemoteEvent = game.ReplicatedStorage:WaitForChild("AntiCheatR")
+
+AntiCheat:Start(RemoteEvent)
