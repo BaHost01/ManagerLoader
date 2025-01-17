@@ -1,0 +1,122 @@
+local AntiCheat = {}
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+script.Parent = game.ServerScriptService
+-- Configuration
+local Config = {
+    MaxWalkSpeed = 16,
+    MaxJumpPower = 50,
+    MaxTeleportDistance = 50,
+    MaxAirTime = 3,
+    EventRateLimit = 0.5, -- Seconds
+    AllowableScripts = {"Script1", "Script2"}, -- Add your game's script names
+}
+
+-- Internal Variables
+local lastPositions = {}
+local lastEventTimes = {}
+local airTimers = {}
+
+-- Utility Functions
+local function logSuspiciousActivity(player, reason)
+    print("[Anti-Cheat] " .. player.Name .. " kicked for: " .. reason)
+end
+
+local function kickPlayer(player, reason)
+    logSuspiciousActivity(player, reason)
+    player:Kick("Exploiting detected: " .. reason)
+end
+
+-- Functions
+function AntiCheat:MonitorSpeed()
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(character)
+            local humanoid = character:WaitForChild("Humanoid")
+            humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                if humanoid.WalkSpeed > Config.MaxWalkSpeed then
+                    kickPlayer(player, "Speed hacking detected!")
+                end
+            end)
+        end)
+    end)
+end
+
+function AntiCheat:MonitorTeleportation()
+    RunService.Stepped:Connect(function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character = player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local currentPosition = character.HumanoidRootPart.Position
+                local lastPosition = lastPositions[player]
+                if lastPosition then
+                    local distance = (currentPosition - lastPosition).Magnitude
+                    if distance > Config.MaxTeleportDistance then
+                        kickPlayer(player, "Teleportation detected!")
+                    end
+                end
+                lastPositions[player] = currentPosition
+            end
+        end
+    end)
+end
+
+function AntiCheat:MonitorRemoteEvents(remoteEvent)
+    remoteEvent.OnServerEvent:Connect(function(player, ...)
+        local now = os.clock()
+        if lastEventTimes[player] and now - lastEventTimes[player] < Config.EventRateLimit then
+            kickPlayer(player, "RemoteEvent spamming detected!")
+        end
+        lastEventTimes[player] = now
+        -- Add custom validation logic for event data
+    end)
+end
+
+function AntiCheat:MonitorScripts()
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(character)
+            for _, obj in pairs(character:GetChildren()) do
+                if obj:IsA("Script") or obj:IsA("LocalScript") then
+                    if not table.find(Config.AllowableScripts, obj.Name) then
+                        kickPlayer(player, "Unauthorized script detected!")
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+function AntiCheat:MonitorFlying()
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(character)
+            local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+            local startTime = os.clock()
+
+            RunService.Stepped:Connect(function()
+                local ray = Ray.new(humanoidRootPart.Position, Vector3.new(0, -50, 0))
+                local hit, position = workspace:FindPartOnRay(ray, character)
+
+                if not hit then
+                    if os.clock() - startTime > Config.MaxAirTime then
+                        kickPlayer(player, "Flying detected!")
+                    end
+                else
+                    startTime = os.clock() -- Reset timer when they touch the ground
+                end
+            end)
+        end)
+    end)
+end
+
+function AntiCheat:Start(remoteEvent)
+    self:MonitorSpeed()
+    self:MonitorTeleportation()
+    self:MonitorRemoteEvents(remoteEvent)
+    self:MonitorScripts()
+    self:MonitorFlying()
+    print("[Anti-Cheat] System initialized successfully.")
+end
+
+return AntiCheat
